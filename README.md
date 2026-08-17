@@ -6,6 +6,11 @@ vault mounted read-only, copies stable snapshots into its own persistent Git
 working tree, commits debounced changes, and pushes them to an empty Gitea
 repository over SSH.
 
+Prebuilt `linux/amd64` and `linux/arm64` images are published to
+`ghcr.io/crosbyh/obsidian-sync-backup-sidecar`. Pushes to `main` update the
+`latest`, `main`, and commit-SHA tags; tags such as `v1.2.3` also publish SemVer
+tags.
+
 The live vault never contains a `.git` directory and this container never
 writes to it. It also never pulls, fetches, merges, rebases, or checks out files
 from Gitea. The persistent backup directory is the sole Git writer, so Gitea
@@ -60,7 +65,8 @@ vault receives long bursts and you prefer fewer commits.
 5. Start the backup sidecar:
 
    ```sh
-   docker compose up -d --build
+   docker compose pull
+   docker compose up -d
    docker compose logs -f
    ```
 

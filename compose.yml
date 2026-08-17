@@ -1,7 +1,6 @@
 services:
   obsidian-git-backup:
-    build: .
-    image: ${BACKUP_IMAGE:-obsidian-git-backup-sidecar:local}
+    image: ${BACKUP_IMAGE:-ghcr.io/crosbyh/obsidian-sync-backup-sidecar:latest}
     container_name: obsidian-git-backup
     environment:
       GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
