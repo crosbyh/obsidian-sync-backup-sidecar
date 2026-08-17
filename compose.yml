@@ -1,0 +1,39 @@
+services:
+  obsidian-git-backup:
+    build: .
+    image: ${BACKUP_IMAGE:-obsidian-git-backup-sidecar:local}
+    container_name: obsidian-git-backup
+    environment:
+      GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
+      GIT_BRANCH: ${GIT_BRANCH:-main}
+      GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-Obsidian Backup}
+      GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-obsidian-backup@localhost}
+      COMMIT_MESSAGE: ${COMMIT_MESSAGE:-Obsidian backup}
+      DEBOUNCE_SECONDS: ${DEBOUNCE_SECONDS:-120}
+      MAX_WAIT_SECONDS: ${MAX_WAIT_SECONDS:-900}
+      RESCAN_SECONDS: ${RESCAN_SECONDS:-300}
+      PUSH_RETRIES: ${PUSH_RETRIES:-5}
+      PUSH_RETRY_SECONDS: ${PUSH_RETRY_SECONDS:-30}
+      SSH_KEY_TYPE: ${SSH_KEY_TYPE:-ed25519}
+      SSH_KEY_COMMENT: ${SSH_KEY_COMMENT:-obsidian-git-backup}
+      SSH_KNOWN_HOSTS: ${SSH_KNOWN_HOSTS:-}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+    volumes:
+      # Use the same host path as obsidian-headless-sync-docker, but read-only.
+      - ${VAULT_HOST_PATH:-./vault}:/vault:ro
+      # Git repository, SSH key, known_hosts, and retry state persist here.
+      - ${BACKUP_DATA_PATH:-./data}:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
