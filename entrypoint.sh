@@ -17,6 +17,28 @@ PUSH_RETRY_SECONDS="${PUSH_RETRY_SECONDS:-30}"
 log() { printf '%s %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 fail() { log "ERROR: $*" >&2; exit 1; }
 is_positive_int() { case "$1" in ''|*[!0-9]*|0) return 1;; *) return 0;; esac; }
+is_nonnegative_int() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
+
+is_nonnegative_int "$PUID" || fail "PUID must be a non-negative integer"
+is_nonnegative_int "$PGID" || fail "PGID must be a non-negative integer"
+
+# Alpine has no passwd entry for arbitrary numeric container identities, while
+# OpenSSH requires getpwuid() to succeed. Supply runtime passwd/group files via
+# nss_wrapper so every configured PUID/PGID has a resolvable identity without
+# modifying /etc in the read-only container.
+NSS_PASSWD_FILE=/run/obsidian-passwd
+NSS_GROUP_FILE=/run/obsidian-group
+printf 'root:x:0:0:root:/root:/bin/sh\n' > "$NSS_PASSWD_FILE"
+printf 'root:x:0:\n' > "$NSS_GROUP_FILE"
+if [ "$PUID" -ne 0 ]; then
+  printf 'backup:x:%s:%s:Obsidian Backup:%s:/bin/sh\n' "$PUID" "$PGID" "$DATA_PATH" >> "$NSS_PASSWD_FILE"
+fi
+if [ "$PGID" -ne 0 ]; then
+  printf 'backup:x:%s:\n' "$PGID" >> "$NSS_GROUP_FILE"
+fi
+export NSS_WRAPPER_PASSWD="$NSS_PASSWD_FILE"
+export NSS_WRAPPER_GROUP="$NSS_GROUP_FILE"
+export LD_PRELOAD=/usr/lib/libnss_wrapper.so
 
 case "${SSH_KEY_TYPE:-ed25519}" in
   ed25519|ecdsa|rsa) ;;
@@ -30,8 +52,12 @@ chmod 0700 "$SSH_PATH"
 KEY_FILE="$SSH_PATH/id_${SSH_KEY_TYPE:-ed25519}"
 if [ ! -f "$KEY_FILE" ]; then
   log "Generating ${SSH_KEY_TYPE:-ed25519} SSH key at $KEY_FILE"
-  su-exec "$PUID:$PGID" ssh-keygen -q -t "${SSH_KEY_TYPE:-ed25519}" -N '' \
+  # ssh-keygen requires its effective UID to have a passwd entry. Arbitrary
+  # numeric PUID values do not have one in the image, so generate as root and
+  # hand both files to the configured runtime identity afterward.
+  ssh-keygen -q -t "${SSH_KEY_TYPE:-ed25519}" -N '' \
     -C "${SSH_KEY_COMMENT:-obsidian-git-backup}" -f "$KEY_FILE"
+  chown "$PUID:$PGID" "$KEY_FILE" "$KEY_FILE.pub"
 fi
 
 if [ "${1:-}" = "print-key" ]; then
@@ -98,14 +124,14 @@ snapshot() {
   # Two passes greatly reduce the chance of catching a file halfway through an
   # atomic-save sequence. Git never touches the source vault.
   _copy_try=1
-  while ! as_user rsync -a --delete --exclude=/.git/ "$VAULT_PATH/" "$REPO_PATH/"; do
+  while ! as_user rsync -a --no-owner --no-group --delete --exclude=/.git/ "$VAULT_PATH/" "$REPO_PATH/"; do
     [ "$_copy_try" -lt 3 ] || { log "Snapshot copy failed after 3 attempts; leaving the last commit unchanged"; return 1; }
     _copy_try=$((_copy_try + 1))
     log "Vault changed during copy; retrying snapshot ($_copy_try/3)"
     sleep 2
   done
   sleep 1
-  if ! as_user rsync -a --delete --exclude=/.git/ "$VAULT_PATH/" "$REPO_PATH/"; then
+  if ! as_user rsync -a --no-owner --no-group --delete --exclude=/.git/ "$VAULT_PATH/" "$REPO_PATH/"; then
     log "Snapshot did not settle; deferring commit until the next scan"
     return 1
   fi

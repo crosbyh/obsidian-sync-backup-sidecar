@@ -4,6 +4,7 @@ RUN apk add --no-cache \
       ca-certificates \
       git \
       inotify-tools \
+      nss_wrapper \
       openssh-client \
       rsync \
       su-exec \
